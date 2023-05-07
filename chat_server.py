@@ -3,6 +3,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 import sys
 import fire
 import gradio as gr
+from gradio import utils
 import torch
 from peft import PeftModel
 from transformers import GenerationConfig, AutoTokenizer, AutoModel
@@ -79,21 +80,29 @@ def main(
         model = torch.compile(model)
 
     def evaluate(
-        input="",
+        input_text="",
+        do_sample=False,
         temperature=0.1,
         top_p=0.75,
         top_k=40,
         num_beams=4,
         max_new_tokens=128,
+        history=[],
+        max_history=0,
         **kwargs,
     ):
-        inputs = tokenizer(input, return_tensors="pt", add_special_tokens=True)
+        context = input_text
+        if max_history > 0 and history:
+            tem_history = sum(history, [])
+            context = "".join(tem_history[-max_history:]) + input_text
+        inputs = tokenizer(context, return_tensors="pt", add_special_tokens=True)
         input_ids = inputs["input_ids"].to(device)
         generation_config = GenerationConfig(
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
             num_beams=num_beams,
+            do_sample=do_sample,
             **kwargs,
         )
         with torch.no_grad():
@@ -105,33 +114,43 @@ def main(
                 max_new_tokens=max_new_tokens,
             )
         s = generation_output.sequences[0]
-        output = tokenizer.decode(s)[len(input):]
-        return [[input, output]]
+        output = tokenizer.decode(s)[len(context):]
+        history.append([input_text, output])
+        for line in history:
+            print(line[0])
+            print(line[1])
+        return "", history
 
-    gr.Interface(
-        fn=evaluate,
-        inputs=[
-            gr.components.Textbox(lines=2, label="Input", placeholder="none"),
-            gr.components.Slider(
-                minimum=0, maximum=1, value=0.1, label="Temperature"
-            ),
-            gr.components.Slider(
-                minimum=0, maximum=1, value=0.75, label="Top p"
-            ),
-            gr.components.Slider(
-                minimum=0, maximum=100, step=1, value=40, label="Top k"
-            ),
-            gr.components.Slider(
-                minimum=1, maximum=4, step=1, value=4, label="Beams"
-            ),
-            gr.components.Slider(
-                minimum=1, maximum=2000, step=1, value=128, label="Max tokens"
-            ),
-        ],
-        outputs=[gr.Chatbot()],
-        title="💬Sanguo-ChatGLM-LoRA",
-        description="Sanguo-ChatGLM-LoRA是在[ChatGLM-6B](https://github.com/THUDM/ChatGLM-6B)基础上微调三国对话数据得到的，使用的是LoRA的方式微调，主要参考了[Stanford Alpaca](https://github.com/tatsu-lab/stanford_alpaca)。 更多信息查看[github-LLM_Custome](https://github.com/wellinxu/LLM_Custome)。",
-    ).launch(server_name=server_name, share=share_gradio)
+    md = utils.get_markdown_parser()
+    with gr.Blocks() as demo:
+        title = "💬Cosplay-ChatGLM-LoRA"
+        description = "Cosplay-ChatGLM-LoRA是在[ChatGLM-6B](https://github.com/THUDM/ChatGLM-6B)基础上微调四大名著对话数据得到的，使用的是LoRA的方式微调，主要参考了[Stanford Alpaca](https://github.com/tatsu-lab/stanford_alpaca)。 更多信息查看[github-LLM_Custome](https://github.com/wellinxu/LLM_Custome)。"
+        gr.Markdown("<h1 style='text-align: center; margin-bottom: 1rem'>" + title + "</h1>")
+        gr.Markdown(md.render(description))
+
+        with gr.Row():
+            with gr.Column(scale=2):
+                chatbot = gr.Chatbot(label="对话框")
+                msg = gr.Textbox(label="输入框")
+                with gr.Row():
+                    clear = gr.Button("Clear")
+                    retry = gr.Button("retry")
+                    submit = gr.Button("Submit", variant="primary")
+            with gr.Column(scale=1):
+                do_sample = gr.inputs.Checkbox(label="Do sample")
+                temperature = gr.components.Slider(minimum=0, maximum=1, value=0.1, label="Temperature")
+                top_p = gr.components.Slider(minimum=0, maximum=1, value=0.75, label="Top p")
+                top_k = gr.components.Slider(minimum=0, maximum=100, step=1, value=40, label="Top k")
+                beams = gr.components.Slider(minimum=1, maximum=1, step=1, value=1, label="Beams(BUG)")
+                max_tokens = gr.components.Slider(minimum=1, maximum=512, step=1, value=128, label="Max tokens")
+                max_history = gr.components.Slider(minimum=0, maximum=20, step=1, value=10, label="Max history")
+
+        submit.click(evaluate, [msg, do_sample, temperature, top_p, top_k, beams, max_tokens, chatbot, max_history], [msg, chatbot], queue=False)
+        clear.click(lambda: None, None, chatbot, queue=False)
+        retry.click(lambda v: (v[-1][0] if v else "", v[:-1]), chatbot, [msg, chatbot], queue=False)
+
+    demo.title = title
+    demo.launch(server_name=server_name, share=share_gradio)
 
 
 if __name__ == "__main__":
