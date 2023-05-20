@@ -32,7 +32,7 @@ def main(
     ), "Please specify a --base_model, e.g. --base_model='THUDM/chatglm-6b'"
     assert (
         lora_weights
-    ), "Please specify a --lora_weights'"
+    ), "Please specify a --lora_weights' e.g. --lora_weights='wellinXu/Cosplay-ChatGLM-LoRA'"
 
     tokenizer = AutoTokenizer.from_pretrained(base_model, trust_remote_code=True, device_map={'':0})
     if device == "cuda":
